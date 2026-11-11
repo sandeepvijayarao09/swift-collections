@@ -59,6 +59,20 @@ struct ManyBytesWithPointers: @unsafe TrailingElements {
   var trailingCount: Int { Int(bytes.0) }
 }
 
+final class DeinitObserver {
+  let onDeinit: () -> Void
+
+  init(_ onDeinit: @escaping () -> Void) {
+    self.onDeinit = onDeinit
+  }
+
+  deinit { onDeinit() }
+}
+
+struct ObservedHeader {
+  var observer: DeinitObserver
+}
+
 @Suite("Trailing elements tests")
 struct TrailingElementsTests {
   @Test func simpleCoordinates() {
@@ -182,5 +196,28 @@ struct TrailingElementsTests {
         #expect(unsafe UnsafeMutableRawPointer(p1) == UnsafeMutableRawPointer(p2))
       }
     }
+  }
+
+  @Test func paddingOnHeapReleasesHeader() {
+    var released = false
+    do {
+      let padded = TrailingPadding(
+        header: ObservedHeader(observer: DeinitObserver { released = true }),
+        totalSize: 64)
+      #expect(!released)
+      _ = consume padded
+    }
+    #expect(released)
+  }
+
+  @Test func paddingOnStackReleasesHeader() {
+    var released = false
+    TrailingPadding.withTemporaryValue(
+      header: ObservedHeader(observer: DeinitObserver { released = true }),
+      totalSize: 64
+    ) { _ in
+      #expect(!released)
+    }
+    #expect(released)
   }
 }
